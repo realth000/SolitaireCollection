@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +25,7 @@ import androidx.compose.material.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,25 +40,27 @@ import androidx.compose.ui.draganddrop.DragAndDropTransferData
 import androidx.compose.ui.draganddrop.DragAndDropTransferable
 import androidx.compose.ui.draganddrop.awtTransferable
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
 import com.composables.icons.lucide.Club
 import com.composables.icons.lucide.Diamond
 import com.composables.icons.lucide.Heart
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Spade
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
+
+data class PokerCardUiState(
+    val pokerList: List<Poker> = listOf(),
+)
 
 enum class PokerSuit(val icon: ImageVector, val color: Color) {
     Diamonds(Lucide.Diamond, Color.Red),
@@ -81,9 +85,31 @@ enum class PokerRank(val rank: String) {
     RankK("K"),
 }
 
+class Poker(val suit: PokerSuit, val rank: PokerRank) {
+    override fun toString(): String {
+        return "${suit.name}${rank.rank}"
+    }
+}
+
+class PokerListViewModel(val pokers: List<Poker>) : ViewModel() {
+    private val _pokers: MutableList<Poker> = pokers.toMutableList()
+    private val _uiState = MutableStateFlow(PokerCardUiState(_pokers));
+    val uiState = _uiState.asStateFlow()
+}
+
+@Composable
+fun PokerList(pokerListViewModel: PokerListViewModel) {
+    val pokerListState by pokerListViewModel.uiState.collectAsState()
+    Column(
+        verticalArrangement = Arrangement.spacedBy((-20).dp)
+    ) {
+        pokerListState.pokerList.map { it -> PokerCard(it) }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
 @Composable
-fun PokerCard(suit: PokerSuit, rank: PokerRank) {
+fun PokerCard(poker: Poker) {
     val graphicsLayer = rememberGraphicsLayer()
     val coroutineScope = rememberCoroutineScope()
 
@@ -97,7 +123,7 @@ fun PokerCard(suit: PokerSuit, rank: PokerRank) {
     Card(
         modifier = Modifier
             .size(48.dp, 60.dp)
-            .border(BorderStroke(2.dp, color = suit.color))
+            .border(BorderStroke(2.dp, color = poker.suit.color))
             .drawWithContent {
                 graphicsLayer.record {
                     this@drawWithContent.drawContent()
@@ -115,11 +141,14 @@ fun PokerCard(suit: PokerSuit, rank: PokerRank) {
                 }
             ) {
                 detectDragGestures(
+                    onDragEnd = {
+
+                    },
                     onDragStart = { offset ->
                         startTransfer(
                             DragAndDropTransferData(
                                 transferable = DragAndDropTransferable(
-                                    StringSelection("${suit.name}:${rank.rank}")
+                                    StringSelection(poker.toString())
                                 ),
                                 supportedActions = listOf(
                                     DragAndDropTransferAction.Copy,
@@ -128,7 +157,7 @@ fun PokerCard(suit: PokerSuit, rank: PokerRank) {
                                 ),
                                 dragDecorationOffset = offset,
                                 onTransferCompleted = { action ->
-                                    println("Action at the source: $action, suit=$suit, rank=$rank")
+                                    println("Action at the source: $action, $poker")
                                 }
                             )
                         )
@@ -139,16 +168,16 @@ fun PokerCard(suit: PokerSuit, rank: PokerRank) {
                 // This block is called after composable is constructed, save the drawing result before dragging.
                 if (imageBitmap == null) {
                     coroutineScope.launch {
-                        println(">>> save drag decoration: ${suit.name}${rank.rank}")
+                        println(">>> save drag decoration: $poker")
                         imageBitmap = graphicsLayer.toImageBitmap()
                     }
                 }
             }
     ) {
         Row {
-            Icon(suit.icon, contentDescription = "", tint = suit.color)
+            Icon(poker.suit.icon, contentDescription = "", tint = poker.suit.color)
             Spacer(modifier = Modifier.size(8.dp, 8.dp))
-            Text(rank.rank)
+            Text(poker.rank.rank)
         }
     }
 }
@@ -161,13 +190,17 @@ fun CardMinimalExample() {
     ) {
         Column(modifier = Modifier.padding(4.dp)) {
             Row {
-                PokerCard(PokerSuit.Diamonds, PokerRank.Rank1)
-                PokerCard(PokerSuit.Hearts, PokerRank.Rank2)
-                PokerCard(PokerSuit.Clubs, PokerRank.Rank3)
-                PokerCard(PokerSuit.Spades, PokerRank.Rank4)
+                PokerList(
+                    PokerListViewModel(
+                        pokers = listOf(
+                            Poker(PokerSuit.Diamonds, PokerRank.Rank1),
+                            Poker(PokerSuit.Hearts, PokerRank.Rank2),
+                            Poker(PokerSuit.Clubs, PokerRank.Rank3),
+                            Poker(PokerSuit.Spades, PokerRank.Rank4),
+                        )
+                    )
+                )
             }
-            PokerCard("world 1")
-            PokerCard("world 2")
             Box(modifier = Modifier.size(200.dp))
             PokerBox()
         }
@@ -213,60 +246,6 @@ fun App() {
         }
 
     }
-}
-
-@OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
-@Composable
-fun PokerCard(text: String) {
-    val textMeasurer = rememberTextMeasurer()
-
-    Text(
-        modifier = Modifier
-            .dragAndDropSource(
-                drawDragDecoration = {
-                    drawRect(
-                        color = Color.White,
-                        topLeft = Offset(x = 0f, y = size.height / 4),
-                        size = Size(size.width, size.height / 2)
-                    )
-                    val textLayoutResult = textMeasurer.measure(
-                        text = AnnotatedString(text),
-                        layoutDirection = layoutDirection,
-                        density = this
-                    )
-                    drawText(
-                        textLayoutResult = textLayoutResult,
-                        topLeft = Offset(
-                            x = (size.width - textLayoutResult.size.width) / 2,
-                            y = (size.height - textLayoutResult.size.height) / 2,
-                        )
-                    )
-                }
-            ) {
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        startTransfer(
-                            DragAndDropTransferData(
-                                transferable = DragAndDropTransferable(
-                                    StringSelection(text)
-                                ),
-                                supportedActions = listOf(
-                                    DragAndDropTransferAction.Copy,
-                                    DragAndDropTransferAction.Move,
-                                    DragAndDropTransferAction.Link,
-                                ),
-                                dragDecorationOffset = offset,
-                                onTransferCompleted = { action ->
-                                    println("Action at the source: $action, text=$text")
-                                }
-                            )
-                        )
-                    },
-                    onDrag = { _, _ -> }
-                )
-            },
-        text = text
-    )
 }
 
 /**
