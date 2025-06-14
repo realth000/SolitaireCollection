@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
+import co.touchlab.kermit.Logger
 import com.composables.icons.lucide.Club
 import com.composables.icons.lucide.Diamond
 import com.composables.icons.lucide.Heart
@@ -53,6 +54,7 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Spade
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import java.awt.datatransfer.DataFlavor
@@ -85,7 +87,7 @@ enum class PokerRank(val rank: String) {
     RankK("K"),
 }
 
-class Poker(val suit: PokerSuit, val rank: PokerRank) {
+data class Poker(val suit: PokerSuit, val rank: PokerRank) {
     override fun toString(): String {
         return "${suit.name}${rank.rank}"
     }
@@ -95,21 +97,33 @@ class PokerListViewModel(val pokers: List<Poker>) : ViewModel() {
     private val _pokers: MutableList<Poker> = pokers.toMutableList()
     private val _uiState = MutableStateFlow(PokerCardUiState(_pokers));
     val uiState = _uiState.asStateFlow()
+
+    fun cardMoveOut(poker: Poker) {
+        if (!_pokers.contains(poker)) {
+            Logger.e("intend to move poker $poker out of card, which didn't presents")
+            return
+        }
+
+        _uiState.update { state ->
+            state.copy(pokerList = state.pokerList - poker)
+        }
+    }
 }
 
 @Composable
-fun PokerList(pokerListViewModel: PokerListViewModel) {
-    val pokerListState by pokerListViewModel.uiState.collectAsState()
+fun PokerList(state: PokerCardUiState, viewModel: PokerListViewModel) {
+
     Column(
         verticalArrangement = Arrangement.spacedBy((-20).dp)
     ) {
-        pokerListState.pokerList.map { it -> PokerCard(it) }
+        Logger.i("UPDATE! pokers=${state.pokerList}")
+        state.pokerList.map { it -> PokerCard(it, viewModel) }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
 @Composable
-fun PokerCard(poker: Poker) {
+fun PokerCard(poker: Poker, viewModel: PokerListViewModel) {
     val graphicsLayer = rememberGraphicsLayer()
     val coroutineScope = rememberCoroutineScope()
 
@@ -132,17 +146,15 @@ fun PokerCard(poker: Poker) {
             }
             .dragAndDropSource(
                 drawDragDecoration = {
-                    println(">>> applying drag decoration")
                     // The decoration when dragging is the contents of current composable.
                     imageBitmap?.let {
-                        println(">>> draw drag decoration")
                         drawImage(it)
                     }
                 }
             ) {
                 detectDragGestures(
                     onDragEnd = {
-
+                        viewModel.cardMoveOut(poker)
                     },
                     onDragStart = { offset ->
                         startTransfer(
@@ -157,7 +169,7 @@ fun PokerCard(poker: Poker) {
                                 ),
                                 dragDecorationOffset = offset,
                                 onTransferCompleted = { action ->
-                                    println("Action at the source: $action, $poker")
+                                    Logger.i("Action at the source: $action, $poker")
                                 }
                             )
                         )
@@ -168,7 +180,7 @@ fun PokerCard(poker: Poker) {
                 // This block is called after composable is constructed, save the drawing result before dragging.
                 if (imageBitmap == null) {
                     coroutineScope.launch {
-                        println(">>> save drag decoration: $poker")
+                        Logger.i("save drag decoration: $poker")
                         imageBitmap = graphicsLayer.toImageBitmap()
                     }
                 }
@@ -184,6 +196,16 @@ fun PokerCard(poker: Poker) {
 
 @Composable
 fun CardMinimalExample() {
+    val viewModel = PokerListViewModel(
+        pokers = listOf(
+            Poker(PokerSuit.Diamonds, PokerRank.Rank1),
+            Poker(PokerSuit.Hearts, PokerRank.Rank2),
+            Poker(PokerSuit.Clubs, PokerRank.Rank3),
+            Poker(PokerSuit.Spades, PokerRank.Rank4),
+        )
+    )
+
+    val uiState by viewModel.uiState.collectAsState()
 
     Card(
         modifier = Modifier.fillMaxSize().padding(12.dp).border(width = 2.dp, color = Color.Blue)
@@ -191,14 +213,8 @@ fun CardMinimalExample() {
         Column(modifier = Modifier.padding(4.dp)) {
             Row {
                 PokerList(
-                    PokerListViewModel(
-                        pokers = listOf(
-                            Poker(PokerSuit.Diamonds, PokerRank.Rank1),
-                            Poker(PokerSuit.Hearts, PokerRank.Rank2),
-                            Poker(PokerSuit.Clubs, PokerRank.Rank3),
-                            Poker(PokerSuit.Spades, PokerRank.Rank4),
-                        )
-                    )
+                    uiState,
+                    viewModel
                 )
             }
             Box(modifier = Modifier.size(200.dp))
@@ -274,7 +290,6 @@ fun PokerBox() {
             }
 
             override fun onDrop(event: DragAndDropEvent): Boolean {
-                println("Action at the target: ${event.action}")
                 val incomingCardName = event.awtTransferable.let {
                     if (it.isDataFlavorSupported(DataFlavor.stringFlavor))
                         it.getTransferData(DataFlavor.stringFlavor) as String
