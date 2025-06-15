@@ -59,6 +59,25 @@ import org.jetbrains.compose.ui.tooling.preview.Preview
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 
+data class PokerInTransfer(val listId: PokerListId, val poker: Poker) {
+    fun serializeToString(): String {
+        return "$listId:${poker.serializeToString()}"
+    }
+
+    companion object {
+        fun deserializeFromString(data: String): PokerInTransfer? {
+            val splitAt = data.indexOf(':')
+            if (splitAt < 0) {
+                return null
+            }
+            val poker = Poker.deserializeFromString(data.substring(splitAt + 1)) ?: return null;
+
+            return PokerInTransfer(PokerListId(data.substring(0, splitAt)), poker)
+        }
+    }
+
+}
+
 data class PokerListId(
     val listId: String,
 )
@@ -174,13 +193,15 @@ fun PokerList(listId: PokerListId, state: PokerCardUiState, viewModel: PokerList
                         it.transferDataFlavors.first().humanPresentableName
                 }
 
-                val poker = Poker.deserializeFromString(incomingCardName)
-                if (poker == null) {
+                val pokerInTransfer = PokerInTransfer.deserializeFromString(incomingCardName)
+                if (pokerInTransfer == null) {
                     Logger.e("invalid poker data received in transfer: \"$incomingCardName\"")
                     return true
                 }
 
-                viewModel.cardMoveIn(listId, poker)
+                // TODO: Check the movement is valid or not.
+
+                viewModel.cardMoveIn(listId, pokerInTransfer.poker)
 
                 // Set text to the initial one after 2 seconds.
                 // coroutineScope.launch {
@@ -241,26 +262,31 @@ fun PokerCard(listId: PokerListId, poker: Poker, viewModel: PokerListViewModel) 
                 }
             ) {
                 detectDragGestures(
-                    onDragEnd = {
-                        viewModel.cardMoveOut(listId, poker)
-                    },
                     onDragStart = { offset ->
+                        Logger.i(">>> drag started")
                         startTransfer(
                             DragAndDropTransferData(
                                 transferable = DragAndDropTransferable(
-                                    StringSelection(poker.serializeToString())
+                                    StringSelection(PokerInTransfer(listId, poker).serializeToString())
                                 ),
                                 supportedActions = listOf(
-                                    DragAndDropTransferAction.Copy,
                                     DragAndDropTransferAction.Move,
-                                    DragAndDropTransferAction.Link,
                                 ),
                                 dragDecorationOffset = offset,
                                 onTransferCompleted = { action ->
                                     Logger.i("Action at the source: $action, $poker")
+                                    if (action == null) {
+                                        // Get the poker back if drag is canceled because the originally positioned poker card was
+                                        // removed since the drag started, no duplicate poker do we have.
+                                        Logger.i("drag canceled, restore poker")
+                                        viewModel.cardMoveIn(listId, poker)
+                                    }
                                 }
                             )
                         )
+                        // Delete the originally positioned poker once the move is started, because we have one in the
+                        // drag position.
+                        viewModel.cardMoveOut(listId, poker)
                     },
                     onDrag = { _, _ -> }
                 )
