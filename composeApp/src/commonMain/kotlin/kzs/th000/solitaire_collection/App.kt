@@ -2,17 +2,21 @@ package kzs.th000.solitaire_collection
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.Button
 import androidx.compose.material.Card
 import androidx.compose.material.Icon
@@ -58,6 +62,9 @@ import kotlinx.coroutines.launch
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
+
+const val CARD_WITH = 48
+const val CARD_HEIGHT = 60
 
 data class PokerInTransfer(val listId: PokerListId, val poker: Poker) {
     fun serializeToString(): String {
@@ -216,13 +223,24 @@ fun PokerList(listId: PokerListId, state: PokerCardUiState, viewModel: PokerList
     }
 
     Column(
-        modifier = Modifier.dragAndDropTarget(shouldStartDragAndDrop = { true }, target = dragAndDropTarget),
+        modifier = Modifier
+            .fillMaxHeight().background(color = Color.Red)
+            .dragAndDropTarget(shouldStartDragAndDrop = { true }, target = dragAndDropTarget),
         verticalArrangement = Arrangement.spacedBy((-20).dp)
     ) {
-        Logger.i("UPDATE! pokers=${state.pokerMap}")
+        val cards = state.pokerMap.filter { it -> it.key == listId }.entries.firstOrNull()?.value
+
+        if (cards == null || cards.isEmpty())
+            Box(
+                modifier = Modifier
+                    .width(CARD_WITH.dp)
+                    .fillMaxHeight()
+                    .dragAndDropTarget(shouldStartDragAndDrop = { true }, target = dragAndDropTarget),
+            ) {
+            }
+        else
         // The state MUST hold current card list.
-        state.pokerMap.filter { it -> it.key == listId }.entries.firstOrNull()!!.value
-            .map { it ->
+            cards.map { it ->
                 key(it.id(listId)) {
                     PokerCard(listId, it, viewModel)
                 }
@@ -245,7 +263,7 @@ fun PokerCard(listId: PokerListId, poker: Poker, viewModel: PokerListViewModel) 
 
     Card(
         modifier = Modifier
-            .size(48.dp, 60.dp)
+            .size(CARD_WITH.dp, CARD_HEIGHT.dp)
             .border(BorderStroke(2.dp, color = poker.suit.color))
             .drawWithContent {
                 graphicsLayer.record {
@@ -263,7 +281,6 @@ fun PokerCard(listId: PokerListId, poker: Poker, viewModel: PokerListViewModel) 
             ) {
                 detectDragGestures(
                     onDragStart = { offset ->
-                        Logger.i(">>> drag started")
                         startTransfer(
                             DragAndDropTransferData(
                                 transferable = DragAndDropTransferable(
@@ -322,10 +339,10 @@ fun CardMinimalExample() {
             ),
             Pair(
                 PokerListId("list2"), listOf(
-                    Poker(PokerSuit.Diamonds, PokerRank.Rank2),
-                    Poker(PokerSuit.Hearts, PokerRank.Rank3),
-                    Poker(PokerSuit.Clubs, PokerRank.Rank4),
-                    Poker(PokerSuit.Spades, PokerRank.Rank5),
+                    //Poker(PokerSuit.Diamonds, PokerRank.Rank2),
+                    //Poker(PokerSuit.Hearts, PokerRank.Rank3),
+                    //Poker(PokerSuit.Clubs, PokerRank.Rank4),
+                    //Poker(PokerSuit.Spades, PokerRank.Rank5),
                 )
             )
         )
