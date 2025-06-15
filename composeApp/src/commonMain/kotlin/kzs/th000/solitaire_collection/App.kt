@@ -63,7 +63,7 @@ import org.jetbrains.compose.ui.tooling.preview.Preview
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 
-const val CARD_WITH = 48
+const val CARD_WIDTH = 48
 const val CARD_HEIGHT = 60
 
 data class PokerInTransfer(val listId: PokerListId, val poker: Poker) {
@@ -233,7 +233,7 @@ fun PokerList(listId: PokerListId, state: PokerCardUiState, viewModel: PokerList
         if (cards == null || cards.isEmpty())
             Box(
                 modifier = Modifier
-                    .width(CARD_WITH.dp)
+                    .width(CARD_WIDTH.dp)
                     .fillMaxHeight()
                     .dragAndDropTarget(shouldStartDragAndDrop = { true }, target = dragAndDropTarget),
             ) {
@@ -263,7 +263,7 @@ fun PokerCard(listId: PokerListId, poker: Poker, viewModel: PokerListViewModel) 
 
     Card(
         modifier = Modifier
-            .size(CARD_WITH.dp, CARD_HEIGHT.dp)
+            .size(CARD_WIDTH.dp, CARD_HEIGHT.dp)
             .border(BorderStroke(2.dp, color = poker.suit.color))
             .drawWithContent {
                 graphicsLayer.record {
