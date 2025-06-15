@@ -2,13 +2,10 @@ package kzs.th000.solitaire_collection
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.draganddrop.dragAndDropSource
-import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,6 +24,7 @@ import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -60,8 +58,12 @@ import org.jetbrains.compose.ui.tooling.preview.Preview
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 
+data class PokerListId(
+    val listId: String,
+)
+
 data class PokerCardUiState(
-    val pokerList: List<Poker> = listOf(),
+    val pokerMap: Map<PokerListId, List<Poker>> = mapOf(),
 )
 
 enum class PokerSuit(val icon: ImageVector, val color: Color) {
@@ -91,39 +93,91 @@ data class Poker(val suit: PokerSuit, val rank: PokerRank) {
     override fun toString(): String {
         return "${suit.name}${rank.rank}"
     }
+
+    fun id(listId: PokerListId): String {
+        return "$listId${suit.name}${rank.rank}"
+    }
 }
 
-class PokerListViewModel(val pokers: List<Poker>) : ViewModel() {
-    private val _pokers: MutableList<Poker> = pokers.toMutableList()
-    private val _uiState = MutableStateFlow(PokerCardUiState(_pokers));
+class PokerListViewModel(val pokers: MutableMap<PokerListId, List<Poker>>) : ViewModel() {
+    private val _uiState = MutableStateFlow(PokerCardUiState(pokers));
     val uiState = _uiState.asStateFlow()
 
-    fun cardMoveOut(poker: Poker) {
-        if (!_pokers.contains(poker)) {
-            Logger.e("intend to move poker $poker out of card, which didn't presents")
+    fun cardMoveOut(listId: PokerListId, poker: Poker) {
+        val targetPokerList = _uiState.value.pokerMap[listId] ?: return
+        if (!targetPokerList.contains(poker)) {
+            Logger.e("intended to move poker $poker out of card which not present")
             return
         }
 
         _uiState.update { state ->
-            state.copy(pokerList = state.pokerList - poker)
+            state.copy(pokerMap = state.pokerMap - listId + Pair(listId, targetPokerList - poker))
         }
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun PokerList(state: PokerCardUiState, viewModel: PokerListViewModel) {
+fun PokerList(listId: PokerListId, state: PokerCardUiState, viewModel: PokerListViewModel) {
+
+    /**
+     * Flag indicating user is dragging some target or not.
+     */
+    var showTargetBorder by remember { mutableStateOf(false) }
+
+    // val coroutineScope = rememberCoroutineScope()
+    val cardsInside = remember { mutableListOf<String>() }
+
+    val dragAndDropTarget = remember {
+        object : DragAndDropTarget {
+            override fun onStarted(event: DragAndDropEvent) {
+                showTargetBorder = true
+                super.onStarted(event)
+            }
+
+            override fun onEnded(event: DragAndDropEvent) {
+                showTargetBorder = false
+                super.onEnded(event)
+            }
+
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                val incomingCardName = event.awtTransferable.let {
+                    if (it.isDataFlavorSupported(DataFlavor.stringFlavor))
+                        it.getTransferData(DataFlavor.stringFlavor) as String
+                    else
+                        it.transferDataFlavors.first().humanPresentableName
+                }
+                cardsInside.add(incomingCardName)
+
+                // Set text to the initial one after 2 seconds.
+                // coroutineScope.launch {
+                //     delay(2000)
+                //     targetText = "Drop here"
+                // }
+
+                // Drop event was consumed or not.
+                return true
+            }
+        }
+    }
 
     Column(
         verticalArrangement = Arrangement.spacedBy((-20).dp)
     ) {
-        Logger.i("UPDATE! pokers=${state.pokerList}")
-        state.pokerList.map { it -> PokerCard(it, viewModel) }
+        Logger.i("UPDATE! pokers=${state.pokerMap}")
+        // The state MUST hold current card list.
+        state.pokerMap.filter { it -> it.key == listId }.entries.firstOrNull()!!.value
+            .map { it ->
+                key(it.id(listId)) {
+                    PokerCard(listId, it, viewModel)
+                }
+            }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
 @Composable
-fun PokerCard(poker: Poker, viewModel: PokerListViewModel) {
+fun PokerCard(listId: PokerListId, poker: Poker, viewModel: PokerListViewModel) {
     val graphicsLayer = rememberGraphicsLayer()
     val coroutineScope = rememberCoroutineScope()
 
@@ -154,7 +208,7 @@ fun PokerCard(poker: Poker, viewModel: PokerListViewModel) {
             ) {
                 detectDragGestures(
                     onDragEnd = {
-                        viewModel.cardMoveOut(poker)
+                        viewModel.cardMoveOut(listId, poker)
                     },
                     onDragStart = { offset ->
                         startTransfer(
@@ -197,11 +251,23 @@ fun PokerCard(poker: Poker, viewModel: PokerListViewModel) {
 @Composable
 fun CardMinimalExample() {
     val viewModel = PokerListViewModel(
-        pokers = listOf(
-            Poker(PokerSuit.Diamonds, PokerRank.Rank1),
-            Poker(PokerSuit.Hearts, PokerRank.Rank2),
-            Poker(PokerSuit.Clubs, PokerRank.Rank3),
-            Poker(PokerSuit.Spades, PokerRank.Rank4),
+        pokers = mutableMapOf<PokerListId, List<Poker>>(
+            Pair(
+                PokerListId("list1"), listOf(
+                    Poker(PokerSuit.Diamonds, PokerRank.Rank1),
+                    Poker(PokerSuit.Hearts, PokerRank.Rank2),
+                    Poker(PokerSuit.Clubs, PokerRank.Rank3),
+                    Poker(PokerSuit.Spades, PokerRank.Rank4),
+                )
+            ),
+            Pair(
+                PokerListId("list2"), listOf(
+                    Poker(PokerSuit.Diamonds, PokerRank.Rank2),
+                    Poker(PokerSuit.Hearts, PokerRank.Rank3),
+                    Poker(PokerSuit.Clubs, PokerRank.Rank4),
+                    Poker(PokerSuit.Spades, PokerRank.Rank5),
+                )
+            )
         )
     )
 
@@ -211,14 +277,18 @@ fun CardMinimalExample() {
         modifier = Modifier.fillMaxSize().padding(12.dp).border(width = 2.dp, color = Color.Blue)
     ) {
         Column(modifier = Modifier.padding(4.dp)) {
-            Row {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PokerList(
+                    PokerListId("list1"),
+                    uiState,
+                    viewModel
+                )
+                PokerList(
+                    PokerListId("list2"),
                     uiState,
                     viewModel
                 )
             }
-            Box(modifier = Modifier.size(200.dp))
-            PokerBox()
         }
     }
 }
@@ -264,62 +334,62 @@ fun App() {
     }
 }
 
-/**
- * Store a list of cards.
- */
-@OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
-@Composable
-fun PokerBox() {
-    /**
-     * Flag indicating user is dragging some target or not.
-     */
-    var showTargetBorder by remember { mutableStateOf(false) }
-    // val coroutineScope = rememberCoroutineScope()
-    val cardsInside = remember { mutableListOf<String>() }
-
-    val dragAndDropTarget = remember {
-        object : DragAndDropTarget {
-            override fun onStarted(event: DragAndDropEvent) {
-                showTargetBorder = true
-                super.onStarted(event)
-            }
-
-            override fun onEnded(event: DragAndDropEvent) {
-                showTargetBorder = false
-                super.onEnded(event)
-            }
-
-            override fun onDrop(event: DragAndDropEvent): Boolean {
-                val incomingCardName = event.awtTransferable.let {
-                    if (it.isDataFlavorSupported(DataFlavor.stringFlavor))
-                        it.getTransferData(DataFlavor.stringFlavor) as String
-                    else
-                        it.transferDataFlavors.first().humanPresentableName
-                }
-                cardsInside.add(incomingCardName)
-
-                // Set text to the initial one after 2 seconds.
-                // coroutineScope.launch {
-                //     delay(2000)
-                //     targetText = "Drop here"
-                // }
-
-                // Drop event was consumed or not.
-                return true
-            }
-        }
-    }
-
-
-    Box(
-        Modifier.size(200.dp).background(Color.Gray).then(
-            if (showTargetBorder)
-                Modifier.border(BorderStroke(3.dp, Color.Black))
-            else Modifier
-        ).dragAndDropTarget(shouldStartDragAndDrop = { true }, target = dragAndDropTarget)
-    ) {
-        Column {
-            cardsInside.map { it -> Text(it) }
-        }
-    }
-}
+// /**
+//  * Store a list of cards.
+//  */
+// @OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
+// @Composable
+// fun PokerBox() {
+//     /**
+//      * Flag indicating user is dragging some target or not.
+//      */
+//     var showTargetBorder by remember { mutableStateOf(false) }
+//     // val coroutineScope = rememberCoroutineScope()
+//     val cardsInside = remember { mutableListOf<String>() }
+//
+//     val dragAndDropTarget = remember {
+//         object : DragAndDropTarget {
+//             override fun onStarted(event: DragAndDropEvent) {
+//                 showTargetBorder = true
+//                 super.onStarted(event)
+//             }
+//
+//             override fun onEnded(event: DragAndDropEvent) {
+//                 showTargetBorder = false
+//                 super.onEnded(event)
+//             }
+//
+//             override fun onDrop(event: DragAndDropEvent): Boolean {
+//                 val incomingCardName = event.awtTransferable.let {
+//                     if (it.isDataFlavorSupported(DataFlavor.stringFlavor))
+//                         it.getTransferData(DataFlavor.stringFlavor) as String
+//                     else
+//                         it.transferDataFlavors.first().humanPresentableName
+//                 }
+//                 cardsInside.add(incomingCardName)
+//
+//                 // Set text to the initial one after 2 seconds.
+//                 // coroutineScope.launch {
+//                 //     delay(2000)
+//                 //     targetText = "Drop here"
+//                 // }
+//
+//                 // Drop event was consumed or not.
+//                 return true
+//             }
+//         }
+//     }
+//
+//
+//     Box(
+//         Modifier.size(200.dp).background(Color.Gray).then(
+//             if (showTargetBorder)
+//                 Modifier.border(BorderStroke(3.dp, Color.Black))
+//             else Modifier
+//         ).dragAndDropTarget(shouldStartDragAndDrop = { true }, target = dragAndDropTarget)
+//     ) {
+//         Column {
+//             cardsInside.map { it -> Text(it) }
+//         }
+//     }
+// }
